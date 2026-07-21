@@ -20,7 +20,7 @@ const reasonablePolicy = {
 const scenario = {
   title: "Short-term earnings focus",
   description:
-    `Aster Compute Systems' board is paying close attention to the next 1-2 years of performance after this AI infrastructure purchase.`,
+    `Aster Compute Systems' board is using combined Years 1-2 net income to evaluate performance: $60M or more makes a CEO bonus likely, while less than $50M puts the CEO at risk.`,
 };
 
 const cfoPrompts = [
@@ -685,9 +685,7 @@ function createChatMessage(
 
   message.innerHTML = `
     <div class="cfo-avatar" aria-hidden="true" title="Jordan Lee, CFO">
-      <span class="avatar-hair"></span>
-      <span class="avatar-head"></span>
-      <i class="avatar-body"></i>
+      <span>JL</span>
     </div>
     <div class="cfo-copy">
       <div class="chat-bubble">
@@ -751,9 +749,9 @@ function getChatMessages(prompt, reviewMode) {
             "I reopened the dashboard with all three decisions available. Try a different policy and we can compare how the numbers move.",
         }
       : {
-          title: "Hey boss, have a minute?",
+          title: "Do you have a minute?",
           text:
-            "We need to make a few calls on Aster Compute Systems' new AI accelerator server racks. I built a dashboard so we can work through the decisions together. When you're ready, open the dashboard. Quick reminder: the board is especially focused on the next 1-2 years of performance.",
+            "We need to make a few calls on Aster Compute Systems' new AI accelerator server racks. I built a dashboard so we can work through the decisions together. Quick reminder: the board is focused on combined Years 1-2 net income. $60M or more makes a CEO bonus likely; less than $50M puts the CEO at risk. If our depreciation assumptions are too aggressive, we could face scrutiny, a restatement, audit problems, and real career consequences. When you're ready, open the dashboard.",
           actions: state.dashboardOpen
             ? []
             : [
