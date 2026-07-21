@@ -74,25 +74,31 @@ const tutorialSteps = {
 };
 
 let state = {
-  started: true,
+  started: false,
   activeStep: 0,
   approved: false,
+  approvedRunRecorded: false,
+  showingSessionRecap: false,
   tutorialStep: null,
   dashboardOpen: false,
   chatStage: "opening",
   tourSkipped: false,
   replayMode: false,
+  previewTab: "charts",
   method: null,
   usefulLife: 3,
   residualValue: 0,
 };
 
 let previousChatMessageCount = 0;
+let studentName = "";
+const playthroughs = [];
 
 const els = {
   landingScreen: document.querySelector("#landingScreen"),
   simulationScreen: document.querySelector("#simulationScreen"),
   startSimulationButton: document.querySelector("#startSimulationButton"),
+  studentNameInput: document.querySelector("#studentNameInput"),
   scenarioTitle: document.querySelector("#scenarioTitle"),
   scenarioDescription: document.querySelector("#scenarioDescription"),
   decisionHeading: document.querySelector("#decisionHeading"),
@@ -123,17 +129,36 @@ const els = {
   incomeChartTitle: document.querySelector("#incomeChartTitle"),
   incomeChart: document.querySelector("#incomeChart"),
   assetTableBody: document.querySelector("#assetTableBody"),
+  previewTabs: [...document.querySelectorAll("[data-preview-tab]")],
+  previewViews: [...document.querySelectorAll("[data-preview-view]")],
+  incomeStatementBody: document.querySelector("#incomeStatementBody"),
+  balanceSheetBody: document.querySelector("#balanceSheetBody"),
   finalPanel: document.querySelector("#finalPanel"),
   finalTitle: document.querySelector("#finalTitle"),
   finalText: document.querySelector("#finalText"),
   outcomeDetails: document.querySelector("#outcomeDetails"),
   playAgainButton: document.querySelector("#playAgainButton"),
+  sessionRecapButton: document.querySelector("#sessionRecapButton"),
+  sessionPanel: document.querySelector("#sessionPanel"),
+  sessionTitle: document.querySelector("#sessionTitle"),
+  sessionText: document.querySelector("#sessionText"),
+  sessionSummary: document.querySelector("#sessionSummary"),
+  sessionPlayAgainButton: document.querySelector("#sessionPlayAgainButton"),
+  sessionBackButton: document.querySelector("#sessionBackButton"),
   longTermButton: document.querySelector("#longTermButton"),
 };
 
 function money(value) {
   const rounded = Math.round(value);
   return rounded < 0 ? `-$${Math.abs(rounded)}M` : `$${rounded}M`;
+}
+
+function escapeAttribute(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 function getTutorialTarget() {
@@ -318,6 +343,45 @@ function getIncomeChartScale() {
   };
 }
 
+function getNetIncomeTooltip(row) {
+  return `Year ${row.year} net income: ${money(row.revenue)} revenue - ${money(
+    facts.otherCosts
+  )} other operating costs - ${money(row.depreciation)} depreciation expense = ${money(
+    row.netIncome
+  )}.`;
+}
+
+function getDepreciationTooltip(row) {
+  const methodText =
+    state.method === "straight"
+      ? `Straight-line: (${money(facts.assetCost)} cost - ${money(
+          state.residualValue
+        )} residual value) / ${state.usefulLife} years = ${money(row.depreciation)}.`
+      : row.depreciation === 0
+        ? `The asset has reached its residual value, so no additional depreciation is recorded in Year ${row.year}.`
+        : `Double-declining: beginning book value x ${Math.round(
+            (2 / state.usefulLife) * 100
+          )}% rate, capped so ending book value does not fall below ${money(
+            state.residualValue
+          )} residual value = ${money(row.depreciation)}.`;
+
+  return `Year ${row.year} depreciation expense. ${methodText}`;
+}
+
+function getAccumulatedDepreciationTooltip(row) {
+  return `Accumulated depreciation after Year ${row.year}: total depreciation recorded so far = ${money(
+    row.accumulatedDepreciation
+  )}.`;
+}
+
+function getBookValueTooltip(row) {
+  return `Ending book value after Year ${row.year}: ${money(
+    facts.assetCost
+  )} cost - ${money(row.accumulatedDepreciation)} accumulated depreciation = ${money(
+    row.bookValue
+  )}.`;
+}
+
 function renderIncomeChart(schedule, metrics) {
   const scale = getIncomeChartScale();
   const hasNegativeIncome = schedule.some((row) => row.netIncome < 0);
@@ -352,7 +416,12 @@ function renderIncomeChart(schedule, metrics) {
         <div class="${columnClasses.join(" ")}">
           <div class="chart-value">${money(row.netIncome)}</div>
           <div class="column-track">
-            <div class="vertical-bar ${barClasses.join(" ")}" style="--bar-height: ${height}px"></div>
+            <div
+              class="vertical-bar ${barClasses.join(" ")}"
+              style="--bar-height: ${height}px"
+              title="${escapeAttribute(getNetIncomeTooltip(row))}"
+              aria-label="${escapeAttribute(getNetIncomeTooltip(row))}"
+            ></div>
           </div>
           <div class="year-label">Year ${row.year}${row.year <= 2 ? "<span>target</span>" : ""}</div>
         </div>
@@ -381,13 +450,115 @@ function renderAssetTable(schedule) {
       return `
         <tr>
           <td>Year ${row.year}</td>
-          <td>${money(row.depreciation)}</td>
-          <td>${money(row.accumulatedDepreciation)}</td>
-          <td>${money(row.bookValue)}</td>
+          <td title="${escapeAttribute(getDepreciationTooltip(row))}">${money(row.depreciation)}</td>
+          <td title="${escapeAttribute(getAccumulatedDepreciationTooltip(row))}">${money(row.accumulatedDepreciation)}</td>
+          <td title="${escapeAttribute(getBookValueTooltip(row))}">${money(row.bookValue)}</td>
         </tr>
       `;
     })
     .join("");
+}
+
+function renderStatements(schedule) {
+  if (!schedule.length) {
+    els.incomeStatementBody.innerHTML = `<p class="statement-empty">Choose a depreciation method to see the financial statement snapshots.</p>`;
+    els.balanceSheetBody.innerHTML = `<p class="statement-empty">Choose a depreciation method to see the financial statement snapshots.</p>`;
+    return;
+  }
+
+  const yearOne = schedule[0];
+  const yearTwo = schedule[1] || {
+    revenue: facts.annualRevenue,
+    depreciation: 0,
+    netIncome: facts.annualRevenue - facts.otherCosts,
+    accumulatedDepreciation: yearOne.accumulatedDepreciation,
+    bookValue: yearOne.bookValue,
+  };
+  const rows = [
+    ["Revenue", yearOne.revenue, yearTwo.revenue, yearOne.revenue + yearTwo.revenue],
+    ["Other operating costs", -facts.otherCosts, -facts.otherCosts, -facts.otherCosts * 2],
+    [
+      "Depreciation expense",
+      -yearOne.depreciation,
+      -yearTwo.depreciation,
+      -(yearOne.depreciation + yearTwo.depreciation),
+    ],
+    ["Net income", yearOne.netIncome, yearTwo.netIncome, yearOne.netIncome + yearTwo.netIncome],
+  ];
+
+  els.incomeStatementBody.innerHTML = `
+    <table class="statement-table">
+      <thead>
+        <tr>
+          <th scope="col">Line item</th>
+          <th scope="col">Year 1</th>
+          <th scope="col">Year 2</th>
+          <th scope="col">Years 1-2</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows
+          .map(
+            ([label, year1, year2, total]) => `
+              <tr class="${label === "Net income" ? "is-total" : ""}">
+                <td>${label}</td>
+                <td>${money(year1)}</td>
+                <td>${money(year2)}</td>
+                <td>${money(total)}</td>
+              </tr>
+            `
+          )
+          .join("")}
+      </tbody>
+    </table>
+  `;
+
+  els.balanceSheetBody.innerHTML = `
+    <table class="statement-table">
+      <thead>
+        <tr>
+          <th scope="col">Asset snapshot</th>
+          <th scope="col">End of Year 1</th>
+          <th scope="col">End of Year 2</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Equipment cost</td>
+          <td>${money(facts.assetCost)}</td>
+          <td>${money(facts.assetCost)}</td>
+        </tr>
+        <tr>
+          <td>Less: accumulated depreciation</td>
+          <td>${money(-yearOne.accumulatedDepreciation)}</td>
+          <td>${money(-yearTwo.accumulatedDepreciation)}</td>
+        </tr>
+        <tr class="is-total">
+          <td>Net equipment book value</td>
+          <td>${money(yearOne.bookValue)}</td>
+          <td>${money(yearTwo.bookValue)}</td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+}
+
+function renderPreviewTabs() {
+  els.previewTabs.forEach((tab) => {
+    const selected = tab.dataset.previewTab === state.previewTab;
+    tab.classList.toggle("is-selected", selected);
+    tab.setAttribute("aria-selected", String(selected));
+  });
+
+  els.previewViews.forEach((view) => {
+    const selected = view.dataset.previewView === state.previewTab;
+    view.classList.toggle("is-hidden", !selected);
+  });
+}
+
+function renderLanding() {
+  const nameValue = els.studentNameInput.value.trim();
+  els.startSimulationButton.disabled = nameValue.length === 0;
 }
 
 function methodLabel(method) {
@@ -625,22 +796,99 @@ function renderOutcomeDetails(outcome, metrics) {
   }
 }
 
+function getCurrentOutcome(metrics) {
+  return getAccountingTrouble() || getEmploymentOutcome(metrics);
+}
+
+function recordPlaythrough(outcome, metrics) {
+  if (state.approvedRunRecorded) {
+    return;
+  }
+
+  playthroughs.push({
+    number: playthroughs.length + 1,
+    studentName,
+    outcomeKey: outcome.key,
+    outcomeTitle: outcome.title,
+    method: state.method,
+    usefulLife: state.usefulLife,
+    residualValue: state.residualValue,
+    shortTermIncome: metrics.shortTermIncome,
+    warnings: getPolicyWarnings().map((warning) => warning.title),
+  });
+
+  state.approvedRunRecorded = true;
+}
+
+function renderSessionRecap() {
+  const displayName = studentName || "Student";
+  els.sessionTitle.textContent = `${displayName}'s session recap`;
+  els.sessionText.textContent =
+    playthroughs.length === 1
+      ? "You completed 1 play-through. Here is the decision path and outcome."
+      : `You completed ${playthroughs.length} play-throughs. Compare how the accounting choices changed the story.`;
+
+  if (!playthroughs.length) {
+    els.sessionSummary.innerHTML = `<p class="statement-empty">Complete a play-through to build your session recap.</p>`;
+    return;
+  }
+
+  els.sessionSummary.innerHTML = playthroughs
+    .map((run) => {
+      const warningText = run.warnings.length
+        ? run.warnings.join(" ")
+        : "No aggressive estimate was flagged.";
+
+      return `
+        <article class="session-run" data-outcome="${run.outcomeKey}">
+          <div>
+            <span>Play-through ${run.number}</span>
+            <h3>${run.outcomeTitle}</h3>
+          </div>
+          <dl>
+            <div>
+              <dt>Method</dt>
+              <dd>${methodLabel(run.method)}</dd>
+            </div>
+            <div>
+              <dt>Useful life</dt>
+              <dd>${run.usefulLife} years</dd>
+            </div>
+            <div>
+              <dt>Residual value</dt>
+              <dd>${money(run.residualValue)}</dd>
+            </div>
+            <div>
+              <dt>Years 1-2 net income</dt>
+              <dd>${money(run.shortTermIncome)}</dd>
+            </div>
+          </dl>
+          <p>${warningText}</p>
+        </article>
+      `;
+    })
+    .join("");
+}
+
 function renderFinal(metrics) {
   if (!state.approved || !metrics) {
     els.finalPanel.classList.add("is-hidden");
+    els.sessionPanel.classList.add("is-hidden");
     els.finalPanel.dataset.outcome = "";
     els.outcomeDetails.innerHTML = "";
     return;
   }
 
-  const accountingTrouble = getAccountingTrouble();
-  const outcome = accountingTrouble || getEmploymentOutcome(metrics);
+  const outcome = getCurrentOutcome(metrics);
+  recordPlaythrough(outcome, metrics);
 
-  els.finalPanel.classList.remove("is-hidden");
+  els.finalPanel.classList.toggle("is-hidden", state.showingSessionRecap);
+  els.sessionPanel.classList.toggle("is-hidden", !state.showingSessionRecap);
   els.finalPanel.dataset.outcome = outcome.key;
   els.finalTitle.textContent = outcome.title;
   els.finalText.textContent = outcome.text;
   renderOutcomeDetails(outcome, metrics);
+  renderSessionRecap();
 }
 
 function getCfoReviewMessage() {
@@ -890,6 +1138,7 @@ function render() {
   );
   els.controlsGrid.classList.toggle("is-spotlight", state.chatStage === "decision");
   els.decisionPanel.classList.toggle("is-ended", state.approved);
+  renderLanding();
 
   els.scenarioTitle.textContent = scenario.title;
   els.scenarioDescription.textContent = scenario.description;
@@ -949,14 +1198,17 @@ function render() {
     state.chatStage !== "active" || state.approved || (prompt.key === "method" && !hasMethod);
 
   els.previewPanel.classList.toggle("is-hidden", !state.dashboardOpen);
+  renderPreviewTabs();
   renderIncomeTarget(metrics);
 
   if (hasMethod) {
     renderIncomeChart(schedule, metrics);
     renderAssetTable(schedule);
+    renderStatements(schedule);
   } else {
     els.incomeChart.innerHTML = "";
     els.assetTableBody.innerHTML = "";
+    renderStatements([]);
   }
 
   renderFinal(metrics);
@@ -967,11 +1219,14 @@ function resetGame({ skipTutorial = false } = {}) {
     started: true,
     activeStep: skipTutorial ? cfoPrompts.length - 2 : 0,
     approved: false,
+    approvedRunRecorded: false,
+    showingSessionRecap: false,
     tutorialStep: null,
     dashboardOpen: skipTutorial,
     chatStage: skipTutorial ? "active" : "opening",
     tourSkipped: skipTutorial,
     replayMode: skipTutorial,
+    previewTab: "charts",
     method: null,
     usefulLife: 3,
     residualValue: 0,
@@ -997,7 +1252,25 @@ els.residualInput.addEventListener("input", (event) => {
   render();
 });
 
+els.studentNameInput.addEventListener("input", renderLanding);
+
+els.previewTabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    state.previewTab = tab.dataset.previewTab;
+    render();
+  });
+});
+
 els.startSimulationButton.addEventListener("click", () => {
+  const nameValue = els.studentNameInput.value.trim();
+
+  if (!nameValue) {
+    els.studentNameInput.focus();
+    renderLanding();
+    return;
+  }
+
+  studentName = nameValue;
   state.started = true;
   state.tutorialStep = null;
   render();
@@ -1037,6 +1310,20 @@ els.nextButton.addEventListener("click", () => {
 
 els.playAgainButton.addEventListener("click", () => {
   resetGame({ skipTutorial: true });
+});
+
+els.sessionRecapButton.addEventListener("click", () => {
+  state.showingSessionRecap = true;
+  render();
+});
+
+els.sessionPlayAgainButton.addEventListener("click", () => {
+  resetGame({ skipTutorial: true });
+});
+
+els.sessionBackButton.addEventListener("click", () => {
+  state.showingSessionRecap = false;
+  render();
 });
 els.longTermButton.disabled = true;
 els.longTermButton.title = "Long-term focus scenario is next on the roadmap.";

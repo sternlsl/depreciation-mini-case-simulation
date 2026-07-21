@@ -44,6 +44,16 @@
             Your CFO will ask you to approve three accounting decisions:
             depreciation method, useful life, and residual value.
           </p>
+          <label class="student-name-field" for="studentNameInput">
+            <span>Your name</span>
+            <input
+              id="studentNameInput"
+              type="text"
+              autocomplete="name"
+              placeholder="Enter your name"
+              required
+            />
+          </label>
           <button class="primary-button landing-button" id="startSimulationButton" type="button">
             Start simulation
           </button>
@@ -114,8 +124,26 @@
             <div class="outcome-details" id="outcomeDetails"></div>
             <div class="outcome-actions">
               <button class="primary-button" id="playAgainButton" type="button">Play again</button>
+              <button class="secondary-button" id="sessionRecapButton" type="button">
+                Session recap
+              </button>
               <button class="secondary-button" id="longTermButton" type="button">
                 Long-term focus
+              </button>
+            </div>
+          </section>
+
+          <section class="session-panel is-hidden" id="sessionPanel" aria-live="polite">
+            <p class="context-heading">Session recap</p>
+            <h2 id="sessionTitle">Your depreciation decisions</h2>
+            <p id="sessionText"></p>
+            <div class="session-summary" id="sessionSummary"></div>
+            <div class="outcome-actions">
+              <button class="primary-button" id="sessionPlayAgainButton" type="button">
+                Play again
+              </button>
+              <button class="secondary-button" id="sessionBackButton" type="button">
+                Back to latest outcome
               </button>
             </div>
           </section>
@@ -158,54 +186,109 @@
           </div>
 
           <section class="preview-panel" aria-label="Live preview">
-            <article class="chart-card">
-              <div class="chart-heading">
-                <div>
-                  <h2 id="incomeChartTitle">Net income over 5 years</h2>
-                </div>
-              </div>
-              <div class="formula-panel" aria-label="How the numbers are calculated">
-                <div>
-                  <span>Net income</span>
-                  <strong>Revenue - operating costs - depreciation expense</strong>
-                </div>
-                <div>
-                  <span>Book value</span>
-                  <strong>Cost - accumulated depreciation</strong>
-                </div>
-              </div>
-              <div class="target-panel" id="incomeTargetPanel" aria-live="polite">
-                <div>
-                  <span class="target-label">Years 1-2 target</span>
-                  <strong id="incomeTargetStatus">Choose a method to test performance.</strong>
-                </div>
-                <div
-                  class="target-thresholds"
-                  id="incomeTargetChips"
-                  aria-label="Years 1 and 2 net income thresholds"
-                ></div>
-              </div>
-              <div class="income-chart" id="incomeChart" aria-label="Net income by year"></div>
-            </article>
+            <div class="preview-tabs" role="tablist" aria-label="Dashboard view">
+              <button
+                class="preview-tab is-selected"
+                id="chartsTab"
+                type="button"
+                role="tab"
+                aria-selected="true"
+                aria-controls="chartsView"
+                data-preview-tab="charts"
+              >
+                Charts
+              </button>
+              <button
+                class="preview-tab"
+                id="statementsTab"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="statementsView"
+                data-preview-tab="statements"
+              >
+                Statements
+              </button>
+            </div>
 
-            <article class="chart-card">
-              <div class="chart-heading">
-                <h2>Depreciation expense and book value</h2>
-              </div>
-              <div class="asset-table-wrap">
-                <table class="asset-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Year</th>
-                      <th scope="col">Depreciation expense</th>
-                      <th scope="col">Accumulated depreciation</th>
-                      <th scope="col">Ending book value</th>
-                    </tr>
-                  </thead>
-                  <tbody id="assetTableBody"></tbody>
-                </table>
-              </div>
-            </article>
+            <div
+              class="preview-view"
+              id="chartsView"
+              role="tabpanel"
+              aria-labelledby="chartsTab"
+              data-preview-view="charts"
+            >
+              <article class="chart-card">
+                <div class="chart-heading">
+                  <div>
+                    <h2 id="incomeChartTitle">Net income over 5 years</h2>
+                  </div>
+                </div>
+                <div class="formula-panel" aria-label="How the numbers are calculated">
+                  <div>
+                    <span>Net income</span>
+                    <strong>Revenue - operating costs - depreciation expense</strong>
+                  </div>
+                  <div>
+                    <span>Book value</span>
+                    <strong>Cost - accumulated depreciation</strong>
+                  </div>
+                </div>
+                <div class="target-panel" id="incomeTargetPanel" aria-live="polite">
+                  <div>
+                    <span class="target-label">Years 1-2 target</span>
+                    <strong id="incomeTargetStatus">Choose a method to test performance.</strong>
+                  </div>
+                  <div
+                    class="target-thresholds"
+                    id="incomeTargetChips"
+                    aria-label="Years 1 and 2 net income thresholds"
+                  ></div>
+                </div>
+                <div class="income-chart" id="incomeChart" aria-label="Net income by year"></div>
+              </article>
+
+              <article class="chart-card">
+                <div class="chart-heading">
+                  <h2>Depreciation expense and book value</h2>
+                </div>
+                <div class="asset-table-wrap">
+                  <table class="asset-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Year</th>
+                        <th scope="col">Depreciation expense</th>
+                        <th scope="col">Accumulated depreciation</th>
+                        <th scope="col">Ending book value</th>
+                      </tr>
+                    </thead>
+                    <tbody id="assetTableBody"></tbody>
+                  </table>
+                </div>
+              </article>
+            </div>
+
+            <div
+              class="preview-view is-hidden"
+              id="statementsView"
+              role="tabpanel"
+              aria-labelledby="statementsTab"
+              data-preview-view="statements"
+            >
+              <article class="chart-card statement-card">
+                <div class="chart-heading">
+                  <h2>Income statement snapshot</h2>
+                </div>
+                <div id="incomeStatementBody" class="statement-body"></div>
+              </article>
+
+              <article class="chart-card statement-card">
+                <div class="chart-heading">
+                  <h2>Balance sheet snapshot</h2>
+                </div>
+                <div id="balanceSheetBody" class="statement-body"></div>
+              </article>
+            </div>
           </section>
         </section>
       </section>
