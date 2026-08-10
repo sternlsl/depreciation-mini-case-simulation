@@ -4,9 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Depreciation Mini-Case Simulation | NYU Stern</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&amp;display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <a class="skip-link" href="#mainContent">Skip to simulation</a>
     <div class="tutorial-backdrop is-hidden" id="tutorialBackdrop"></div>
     <div class="start-tip is-hidden" id="startTip">
       <div class="tip-message">
@@ -24,9 +31,18 @@
       </div>
       <button class="tip-button" id="dismissTipButton" type="button">Next</button>
     </div>
-    <main class="app-shell">
+    <main class="app-shell" id="mainContent" tabindex="-1">
+      <header class="brand-bar" aria-label="NYU Stern School of Business">
+        <div class="brand-lockup">
+          <span class="brand-nyu">NYU</span>
+          <span class="brand-divider" aria-hidden="true"></span>
+          <span class="brand-school">Stern School of Business</span>
+        </div>
+        <span class="brand-course">Financial accounting · Learning simulation</span>
+      </header>
       <section class="landing-screen is-hidden" id="landingScreen" aria-labelledby="landing-title">
         <div class="landing-copy">
+          <p class="landing-eyebrow">Accounting mini-case</p>
           <h1 id="landing-title">Depreciation Mini-Case Simulation</h1>
           <p>
             You are the CEO. Your CFO needs approval for how the company will
