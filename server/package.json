@@ -1,0 +1,22 @@
+{
+  "name": "depreciation-simulation-api",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "description": "Outcome tracking API for the NYU Stern depreciation simulation",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.0.1",
+    "google-auth-library": "^10.2.0",
+    "pg": "^8.16.3"
+  }
+}

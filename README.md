@@ -1,4 +1,4 @@
-# Depreciation Mini-Case Simulation
+# Depreciation Simulation
 
 An interactive mini-case for graduate students in a beginning accounting course at NYU Stern. The simulation helps students see how depreciation choices affect reported business performance, especially when managers have incentives to improve short-term earnings.
 
@@ -19,9 +19,9 @@ Students should be able to:
 - Recognize how accounting estimates can create opportunities for earnings management.
 - Discuss the tradeoff between short-term reported performance and longer-term business health.
 
-## Current Prototype
+## Application structure
 
-The app is a static browser-based prototype with no build step or external dependencies. It can be opened directly in a browser from `index.html`.
+The simulation frontend remains a static site that can be hosted on GitHub Pages. The optional outcome service in `server/` runs on Railway with PostgreSQL and verifies NYU Google Identity Services ID tokens.
 
 Current interaction flow:
 
@@ -37,6 +37,56 @@ Current interaction flow:
 - `index.html` contains the application markup.
 - `styles.css` contains the visual design and layout.
 - `app.js` contains the simulation logic and interaction state.
+- `config.js` identifies the outcome API used by the static frontend.
+- `server/` contains the Railway API, database schema initialization, and server-side outcome validation.
+
+## Ending statistics
+
+Signed-in students receive two additions on the final screen:
+
+- The percentage of distinct players who have unlocked the same ending, once the configured minimum sample size has been reached.
+- A five-slot ending collection that names unlocked endings while keeping undiscovered endings hidden.
+
+Percentages use distinct authenticated players rather than total playthroughs. Replaying the same ending therefore does not distort the result. Statistics are separated by `OUTCOME_RULESET_VERSION`, so the data does not require a term-by-term reset. Increment that version only when the outcome rules change enough that old and new results should not be compared.
+
+The database stores the stable Google account subject identifier and the submitted accounting policy. It does not store the student's name, email address, or Google access tokens.
+
+## Railway API
+
+The Railway application service should use `/server` as its root directory and `npm start` as its start command. It needs these variables:
+
+```text
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+GOOGLE_CLIENT_ID=your-web-client-id.apps.googleusercontent.com
+ALLOWED_EMAIL_DOMAINS=nyu.edu
+ALLOWED_ORIGINS=https://sternlsl.github.io,http://localhost:4000
+OUTCOME_RULESET_VERSION=1
+MIN_STATS_PLAYERS=10
+NODE_ENV=production
+```
+
+The Google client secret is not used. The browser sends a Google ID token, and the API verifies its signature, audience, expiration, verified-email status, and hosted domain.
+
+After the API deploys:
+
+1. Generate a public Railway domain for the application service.
+2. Set its health-check path to `/api/health`.
+3. Replace the local URL in `config.js` with the generated `https://…up.railway.app` domain.
+4. Confirm the Google OAuth web client allows `https://sternlsl.github.io` and `http://localhost:4000` as authorized JavaScript origins.
+
+For local frontend development, serve the repository instead of opening `index.html` directly:
+
+```bash
+python3 -m http.server 4000
+```
+
+The server requires Node 20 or newer. From `server/`, run:
+
+```bash
+pnpm install
+pnpm test
+pnpm start
+```
 
 ## Collaboration Notes
 
@@ -57,4 +107,4 @@ Because this is a static app, it can be published with GitHub Pages. A typical s
 3. Push to the repository.
 4. Enable GitHub Pages for the repository branch that contains `index.html`.
 
-No package installation or build command is required for the current prototype.
+No frontend build command is required. Railway installs and starts the backend separately from the `/server` root directory.

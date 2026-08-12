@@ -33,12 +33,8 @@
     </div>
     <main class="app-shell" id="mainContent" tabindex="-1">
       <header class="brand-bar" aria-label="NYU Stern School of Business">
-        <div class="brand-lockup">
-          <span class="brand-nyu">NYU</span>
-          <span class="brand-divider" aria-hidden="true"></span>
-          <span class="brand-school">Stern School of Business</span>
-        </div>
-        <span class="brand-course">Financial accounting · Learning simulation</span>
+        <img class="brand-logo" src="stern-logo.png" alt="NYU Stern" />
+        <span class="brand-course">Financial Accounting</span>
       </header>
       <section class="landing-screen is-hidden" id="landingScreen" aria-labelledby="landing-title">
         <div class="landing-copy">
@@ -69,6 +65,14 @@
               required
             />
           </label>
+          <section class="sign-in-panel" aria-labelledby="signInTitle">
+            <div>
+              <h3 id="signInTitle">Save your ending progress</h3>
+              <p>Sign in with your NYU Google account to compare your ending and unlock the full set.</p>
+            </div>
+            <div id="googleSignInButton" class="google-sign-in-button"></div>
+            <p class="sign-in-status" id="signInStatus" aria-live="polite">Connecting to sign-in…</p>
+          </section>
           <button class="primary-button landing-button" id="startSimulationButton" type="button">
             Start simulation
           </button>
@@ -76,37 +80,21 @@
       </section>
 
       <div class="simulation-screen" id="simulationScreen">
-        <section class="intro" aria-label="Simulation context">
-          <div class="intro-scenario" aria-labelledby="goalHeading">
-            <h2 class="context-heading" id="goalHeading">Goal</h2>
-            <h3 id="scenarioTitle">Short-term earnings focus</h3>
-            <p id="scenarioDescription">
-              The board has made it clear they are concerned with short term
-              performance. If you don't maximize Net Income for the next 1-2
-              years, you could be fired.
-            </p>
-          </div>
-
-          <div class="intro-case" aria-labelledby="backgroundHeading">
-            <h2 class="context-heading" id="backgroundHeading">Background information</h2>
-            <dl class="case-facts">
-              <div>
-                <dt>Equipment purchase cost</dt>
-                <dd>$100M</dd>
-              </div>
-              <div>
-                <dt>Expected annual revenue</dt>
-                <dd>$80M</dd>
-              </div>
-              <div>
-                <dt>
-                  Other operating costs
-                  <small>before depreciation</small>
-                </dt>
-                <dd>$35M</dd>
-              </div>
-            </dl>
-          </div>
+        <section class="intro" aria-label="Key performance indicators">
+          <dl class="case-facts">
+            <div>
+              <dt>Annual revenue</dt>
+              <dd>$80M</dd>
+            </div>
+            <div>
+              <dt>Operating expense <small>before depreciation</small></dt>
+              <dd>$35M</dd>
+            </div>
+            <div>
+              <dt>Equipment cost</dt>
+              <dd>$100M</dd>
+            </div>
+          </dl>
         </section>
 
         <section class="simulation-layout" aria-label="Depreciation simulation">
@@ -114,7 +102,6 @@
             <header class="workchat-header">
               <div>
                 <h2>WorkChat</h2>
-                <p>Jordan Lee, CFO</p>
               </div>
               <span class="chat-status">Online</span>
             </header>
@@ -137,29 +124,13 @@
             <h2 id="finalTitle">Results</h2>
             <p id="finalText"></p>
             <div class="outcome-details" id="outcomeDetails"></div>
+            <section class="ending-progress" id="endingProgress" aria-live="polite">
+              <h3>Your ending collection</h3>
+              <p id="endingProgressStatus">Saving this ending…</p>
+              <div class="ending-grid" id="endingGrid"></div>
+            </section>
             <div class="outcome-actions">
               <button class="primary-button" id="playAgainButton" type="button">Play again</button>
-              <button class="secondary-button" id="sessionRecapButton" type="button">
-                Session recap
-              </button>
-              <button class="secondary-button" id="longTermButton" type="button">
-                Long-term focus
-              </button>
-            </div>
-          </section>
-
-          <section class="session-panel is-hidden" id="sessionPanel" aria-live="polite">
-            <p class="context-heading">Session recap</p>
-            <h2 id="sessionTitle">Your depreciation decisions</h2>
-            <p id="sessionText"></p>
-            <div class="session-summary" id="sessionSummary"></div>
-            <div class="outcome-actions">
-              <button class="primary-button" id="sessionPlayAgainButton" type="button">
-                Play again
-              </button>
-              <button class="secondary-button" id="sessionBackButton" type="button">
-                Back to latest outcome
-              </button>
             </div>
           </section>
 
@@ -236,50 +207,26 @@
               <article class="chart-card">
                 <div class="chart-heading">
                   <div>
-                    <h2 id="incomeChartTitle">Net income over 5 years</h2>
+                    <h2 id="incomeChartTitle">5-year outlook</h2>
                   </div>
-                </div>
-                <div class="formula-panel" aria-label="How the numbers are calculated">
-                  <div>
-                    <span>Net income</span>
-                    <strong>Revenue - operating costs - depreciation expense</strong>
-                  </div>
-                  <div>
-                    <span>Book value</span>
-                    <strong>Cost - accumulated depreciation</strong>
-                  </div>
-                </div>
-                <div class="target-panel" id="incomeTargetPanel" aria-live="polite">
-                  <div>
-                    <span class="target-label">Years 1-2 target</span>
-                    <strong id="incomeTargetStatus">Choose a method to test performance.</strong>
-                  </div>
+                  <div class="target-panel is-hidden" id="incomeTargetPanel" aria-live="polite">
                   <div
                     class="target-thresholds"
                     id="incomeTargetChips"
                     aria-label="Years 1 and 2 net income thresholds"
                   ></div>
+                  </div>
                 </div>
-                <div class="income-chart" id="incomeChart" aria-label="Net income by year"></div>
-              </article>
-
-              <article class="chart-card">
-                <div class="chart-heading">
-                  <h2>Depreciation expense and book value</h2>
+                <div class="chart-legend" aria-label="Chart legend">
+                  <span><i class="legend-swatch is-income"></i>Net income</span>
+                  <span><i class="legend-swatch is-depreciation"></i>Depreciation expense</span>
+                  <span><i class="legend-swatch is-operating"></i>Operating expense</span>
                 </div>
-                <div class="asset-table-wrap">
-                  <table class="asset-table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Year</th>
-                        <th scope="col">Depreciation expense</th>
-                        <th scope="col">Accumulated depreciation</th>
-                        <th scope="col">Ending book value</th>
-                      </tr>
-                    </thead>
-                    <tbody id="assetTableBody"></tbody>
-                  </table>
-                </div>
+                <div
+                  class="income-chart"
+                  id="incomeChart"
+                  aria-label="Annual revenue allocated to operating expense, depreciation expense, and net income"
+                ></div>
               </article>
             </div>
 
@@ -310,6 +257,8 @@
       </div>
     </main>
 
+    <script src="config.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="app.js"></script>
   </body>
 </html>

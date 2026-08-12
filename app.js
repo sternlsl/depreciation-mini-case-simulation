@@ -11,6 +11,17 @@ const performanceTargets = {
   bonusShortTermIncome: 60,
 };
 
+const appConfig = window.DEPRECIATION_CONFIG || {};
+const apiBaseUrl = String(appConfig.apiBaseUrl || "").replace(/\/$/, "");
+const endingLabels = {
+  fired: "You got fired",
+  safe: "You kept your job",
+  bonus: "You earned the bonus",
+  press: "Accounting controversy",
+  audit: "Audit failure",
+};
+const endingKeys = Object.keys(endingLabels);
+
 const reasonablePolicy = {
   method: "straight",
   usefulLife: 5,
@@ -36,14 +47,14 @@ const cfoPrompts = [
     step: "Decision 2 of 3",
     title: "How long will the AI accelerator racks be useful?",
     text:
-      "Start with a 3-year useful life. You can test 1 to 7 years; a longer useful life spreads the cost over more years and usually raises net income now. Just remember that anything beyond 5 years may need extra support.",
+      "I chose 3 years as a starting point, which is the industry standard for this type of equipment. Make an adjustment if you think we would be able to justify it.",
   },
   {
     key: "residual",
     step: "Decision 3 of 3",
     title: "What will the racks be worth at the end?",
     text:
-      "A $0M residual value is the simplest starting estimate. A higher residual value means less of the rack cost gets depreciated, but the estimate has to be believable when we eventually dispose of the asset.",
+      "A $0 residual value is the norm here. If we increase it, it means we think we can sell the server racks when their useful life ends.",
   },
   {
     key: "review",
@@ -56,7 +67,7 @@ const cfoPrompts = [
 
 const tutorialSteps = {
   background: {
-    title: "Background information",
+    title: "Key performance indicators",
     text:
       "Aster Compute Systems just purchased AI accelerator server racks. Review our numbers before jumping into the depreciation decisions.",
     button: "Next",
@@ -68,7 +79,7 @@ const tutorialSteps = {
   },
   cfo: {
     title: "WorkChat",
-    text: "Jordan Lee, our CFO, will send context and ask for each decision here.",
+    text: "Your CFO will send context and ask for each decision here.",
     button: "Got it",
   },
 };
@@ -77,8 +88,7 @@ let state = {
   started: false,
   activeStep: 0,
   approved: false,
-  approvedRunRecorded: false,
-  showingSessionRecap: false,
+  reviewRequested: false,
   tutorialStep: null,
   dashboardOpen: false,
   chatStage: "opening",
@@ -88,19 +98,38 @@ let state = {
   method: null,
   usefulLife: 3,
   residualValue: 0,
+  runId: createRunId(),
+  completionStatus: "idle",
+  endingProgress: null,
 };
 
 let previousChatMessageCount = 0;
 let studentName = "";
-const playthroughs = [];
+let authState = {
+  credential: null,
+  email: "",
+  status: "loading",
+};
+
+function createRunId() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = character === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
 
 const els = {
   landingScreen: document.querySelector("#landingScreen"),
   simulationScreen: document.querySelector("#simulationScreen"),
   startSimulationButton: document.querySelector("#startSimulationButton"),
   studentNameInput: document.querySelector("#studentNameInput"),
-  scenarioTitle: document.querySelector("#scenarioTitle"),
-  scenarioDescription: document.querySelector("#scenarioDescription"),
+  googleSignInButton: document.querySelector("#googleSignInButton"),
+  signInStatus: document.querySelector("#signInStatus"),
   decisionHeading: document.querySelector("#decisionHeading"),
   cfoCard: document.querySelector("#cfoCard"),
   chatThread: document.querySelector("#chatThread"),
@@ -110,7 +139,7 @@ const els = {
   tutorialBackdrop: document.querySelector("#tutorialBackdrop"),
   dismissTipButton: document.querySelector("#dismissTipButton"),
   introPanel: document.querySelector(".intro"),
-  backgroundInfo: document.querySelector(".intro-case"),
+  backgroundInfo: document.querySelector(".intro"),
   decisionPanel: document.querySelector(".decision-panel"),
   controlsGrid: document.querySelector(".controls-grid"),
   methodCard: document.querySelector('[data-control="method"]'),
@@ -124,11 +153,9 @@ const els = {
   residualOutput: document.querySelector("#residualOutput"),
   previewPanel: document.querySelector(".preview-panel"),
   incomeTargetPanel: document.querySelector("#incomeTargetPanel"),
-  incomeTargetStatus: document.querySelector("#incomeTargetStatus"),
   incomeTargetChips: document.querySelector("#incomeTargetChips"),
   incomeChartTitle: document.querySelector("#incomeChartTitle"),
   incomeChart: document.querySelector("#incomeChart"),
-  assetTableBody: document.querySelector("#assetTableBody"),
   previewTabs: [...document.querySelectorAll("[data-preview-tab]")],
   previewViews: [...document.querySelectorAll("[data-preview-view]")],
   incomeStatementBody: document.querySelector("#incomeStatementBody"),
@@ -137,15 +164,10 @@ const els = {
   finalTitle: document.querySelector("#finalTitle"),
   finalText: document.querySelector("#finalText"),
   outcomeDetails: document.querySelector("#outcomeDetails"),
+  endingProgress: document.querySelector("#endingProgress"),
+  endingProgressStatus: document.querySelector("#endingProgressStatus"),
+  endingGrid: document.querySelector("#endingGrid"),
   playAgainButton: document.querySelector("#playAgainButton"),
-  sessionRecapButton: document.querySelector("#sessionRecapButton"),
-  sessionPanel: document.querySelector("#sessionPanel"),
-  sessionTitle: document.querySelector("#sessionTitle"),
-  sessionText: document.querySelector("#sessionText"),
-  sessionSummary: document.querySelector("#sessionSummary"),
-  sessionPlayAgainButton: document.querySelector("#sessionPlayAgainButton"),
-  sessionBackButton: document.querySelector("#sessionBackButton"),
-  longTermButton: document.querySelector("#longTermButton"),
 };
 
 function money(value) {
@@ -333,16 +355,6 @@ function getBenchmark() {
   return { bestShortTerm };
 }
 
-function getIncomeChartScale() {
-  const allNetIncomeValues = allPossiblePolicies()
-    .flatMap((policy) => calculateSchedule(policy).map((row) => row.netIncome));
-
-  return {
-    maxPositiveIncome: Math.max(...allNetIncomeValues, 0),
-    maxNegativeIncome: Math.max(...allNetIncomeValues.map((value) => -value), 0),
-  };
-}
-
 function getNetIncomeTooltip(row) {
   return `Year ${row.year} net income: ${money(row.revenue)} revenue - ${money(
     facts.otherCosts
@@ -368,62 +380,98 @@ function getDepreciationTooltip(row) {
   return `Year ${row.year} depreciation expense. ${methodText}`;
 }
 
-function getAccumulatedDepreciationTooltip(row) {
-  return `Accumulated depreciation after Year ${row.year}: total depreciation recorded so far = ${money(
-    row.accumulatedDepreciation
-  )}.`;
-}
+function getSegmentLabel(label, value, height) {
+  if (height < 16) {
+    return "";
+  }
 
-function getBookValueTooltip(row) {
-  return `Ending book value after Year ${row.year}: ${money(
-    facts.assetCost
-  )} cost - ${money(row.accumulatedDepreciation)} accumulated depreciation = ${money(
-    row.bookValue
-  )}.`;
+  return `<span class="segment-label ${height < 38 ? "is-compact" : ""}"><strong>${money(
+    value
+  )}</strong></span>`;
 }
 
 function renderIncomeChart(schedule, metrics) {
-  const scale = getIncomeChartScale();
-  const hasNegativeIncome = schedule.some((row) => row.netIncome < 0);
-  const maxPositiveIncome = scale.maxPositiveIncome;
-  const maxNegativeIncome = hasNegativeIncome ? scale.maxNegativeIncome : 0;
-  const trackHeight = hasNegativeIncome ? 196 : 156;
-  const incomeRange = Math.max(maxPositiveIncome + maxNegativeIncome, 1);
-  const baselineY = hasNegativeIncome
-    ? (maxPositiveIncome / incomeRange) * trackHeight
-    : trackHeight;
+  const maxExpenseValue = facts.otherCosts + facts.assetCost;
+  const maxLossValue = Math.max(0, maxExpenseValue - facts.annualRevenue);
+  const upperHeight = 205;
+  const revenueHeight = 174;
+  const revenueTop = upperHeight - revenueHeight;
+  const largestDisplayedLoss = Math.max(0, ...schedule.map((row) => -row.netIncome));
+  const hasLoss = largestDisplayedLoss > 0;
+  const maximumLossPlotHeight = 48;
+  const displayedLossPlotHeight = hasLoss
+    ? Math.max(8, (largestDisplayedLoss / maxLossValue) * maximumLossPlotHeight)
+    : 0;
+  const lossZoneHeight = hasLoss ? displayedLossPlotHeight + 16 : 0;
+  const trackHeight = upperHeight + lossZoneHeight;
+  const revenueScale = revenueHeight / facts.annualRevenue;
+  const depreciationCapacity = facts.annualRevenue - facts.otherCosts;
   const performanceStatus = getPerformanceStatus(metrics);
   els.incomeChart.style.setProperty("--year-count", schedule.length);
   els.incomeChart.style.setProperty("--track-height", `${trackHeight}px`);
-  els.incomeChart.style.setProperty("--baseline-y", `${baselineY}px`);
+  els.incomeChart.style.setProperty("--upper-height", `${upperHeight}px`);
+  els.incomeChart.style.setProperty("--loss-zone-height", `${lossZoneHeight}px`);
+  els.incomeChart.style.setProperty("--revenue-top", `${revenueTop}px`);
 
   els.incomeChart.innerHTML = schedule
-    .map((row) => {
-      const height = Math.max(4, (Math.abs(row.netIncome) / incomeRange) * trackHeight);
-      const barClasses = ["income-bar"];
+    .map((row, index) => {
       const columnClasses = ["chart-column"];
-
-      if (row.netIncome < 0) {
-        barClasses.push("is-negative");
-      }
+      const operatingHeight = facts.otherCosts * revenueScale;
+      const depreciationHeight = Math.min(row.depreciation, depreciationCapacity) * revenueScale;
+      const incomeHeight = Math.max(0, row.netIncome) * revenueScale;
+      const lossHeight = row.netIncome < 0
+        ? Math.max(8, (-row.netIncome / maxLossValue) * maximumLossPlotHeight)
+        : 0;
+      const isLoss = row.netIncome < 0;
 
       if (row.year <= 2) {
         columnClasses.push("is-target-window", `is-${performanceStatus.key}`);
-        barClasses.push(`is-${performanceStatus.key}`);
       }
 
       return `
         <div class="${columnClasses.join(" ")}">
-          <div class="chart-value">${money(row.netIncome)}</div>
-          <div class="column-track">
+          <div
+            class="column-track ${isLoss ? "is-loss" : ""}"
+            style="--operating-height: ${operatingHeight}px; --depreciation-height: ${depreciationHeight}px; --income-height: ${incomeHeight}px; --loss-height: ${lossHeight}px; --revenue-height: ${revenueHeight}px"
+          >
+            ${
+              index === 0
+                ? `<span class="revenue-line-label">Revenue ${money(row.revenue)}</span>`
+                : ""
+            }
             <div
-              class="vertical-bar ${barClasses.join(" ")}"
-              style="--bar-height: ${height}px"
-              title="${escapeAttribute(getNetIncomeTooltip(row))}"
-              aria-label="${escapeAttribute(getNetIncomeTooltip(row))}"
-            ></div>
+              class="stack-segment operating-segment"
+              title="Operating costs in Year ${row.year}: ${money(facts.otherCosts)}."
+              aria-label="Operating costs in Year ${row.year}: ${money(facts.otherCosts)}."
+            >${getSegmentLabel("Operating costs", facts.otherCosts, operatingHeight)}</div>
+            <div
+              class="stack-segment depreciation-segment"
+              title="${escapeAttribute(getDepreciationTooltip(row))}"
+              aria-label="${escapeAttribute(getDepreciationTooltip(row))}"
+            >${getSegmentLabel("Depreciation", row.depreciation, depreciationHeight)}</div>
+            ${
+              isLoss
+                ? ""
+                : `<div class="stack-segment income-segment" title="${escapeAttribute(
+                    getNetIncomeTooltip(row)
+                  )}" aria-label="${escapeAttribute(getNetIncomeTooltip(row))}">${getSegmentLabel(
+                    "Net income",
+                    row.netIncome,
+                    incomeHeight
+                  )}</div>`
+            }
+            ${
+              isLoss
+                ? `<div class="depreciation-overflow-segment" title="Depreciation expense exceeds remaining revenue by ${money(
+                    -row.netIncome
+                  )} in Year ${row.year}." aria-label="Depreciation expense exceeds remaining revenue by ${money(
+                    -row.netIncome
+                  )} in Year ${row.year}, creating a net loss."></div>`
+                : ""
+            }
           </div>
-          <div class="year-label">Year ${row.year}${row.year <= 2 ? "<span>target</span>" : ""}</div>
+          <div class="year-label">Year ${row.year}</div>
+          ${isLoss ? `<div class="loss-label">Net loss ${money(row.netIncome)}</div>` : ""}
         </div>
       `;
     })
@@ -433,30 +481,17 @@ function renderIncomeChart(schedule, metrics) {
 function renderIncomeTarget(metrics) {
   const performanceStatus = getPerformanceStatus(metrics);
   els.incomeTargetPanel.dataset.status = performanceStatus.key;
-  els.incomeTargetStatus.textContent = performanceStatus.label;
+  els.incomeTargetPanel.classList.toggle(
+    "is-hidden",
+    performanceStatus.key === "safe" || performanceStatus.key === "pending"
+  );
 
   const chips = {
-    danger: `<span class="target-chip danger">Danger below ${money(performanceTargets.dangerShortTermIncome)}</span>`,
-    bonus: `<span class="target-chip bonus">Bonus at ${money(performanceTargets.bonusShortTermIncome)}+</span>`,
+    danger: `<span class="target-chip danger">Danger: Years 1–2 net income below $50M.</span>`,
+    bonus: `<span class="target-chip bonus">Likely bonus: Years 1–2 net income above $60M.</span>`,
   };
 
   els.incomeTargetChips.innerHTML = chips[performanceStatus.key] || "";
-}
-
-function renderAssetTable(schedule) {
-  els.assetTableBody.innerHTML = schedule
-    .filter((row) => row.year <= state.usefulLife)
-    .map((row) => {
-      return `
-        <tr>
-          <td>Year ${row.year}</td>
-          <td title="${escapeAttribute(getDepreciationTooltip(row))}">${money(row.depreciation)}</td>
-          <td title="${escapeAttribute(getAccumulatedDepreciationTooltip(row))}">${money(row.accumulatedDepreciation)}</td>
-          <td title="${escapeAttribute(getBookValueTooltip(row))}">${money(row.bookValue)}</td>
-        </tr>
-      `;
-    })
-    .join("");
 }
 
 function renderStatements(schedule) {
@@ -559,6 +594,91 @@ function renderPreviewTabs() {
 function renderLanding() {
   const nameValue = els.studentNameInput.value.trim();
   els.startSimulationButton.disabled = nameValue.length === 0;
+
+  if (authState.status === "signed-in") {
+    els.signInStatus.textContent = `Signed in as ${authState.email}. Your endings will be saved.`;
+    els.signInStatus.className = "sign-in-status is-success";
+  } else if (authState.status === "ready") {
+    els.signInStatus.textContent = "Sign in to save your endings and see player statistics.";
+    els.signInStatus.className = "sign-in-status";
+  } else if (authState.status === "error") {
+    els.signInStatus.textContent = "Sign-in is unavailable right now. You can still play, but this ending will not be saved.";
+    els.signInStatus.className = "sign-in-status is-error";
+  } else {
+    els.signInStatus.textContent = "Connecting to sign-in…";
+    els.signInStatus.className = "sign-in-status";
+  }
+}
+
+function decodeGoogleCredential(credential) {
+  try {
+    const payload = credential.split(".")[1]
+      .replaceAll("-", "+")
+      .replaceAll("_", "/");
+    return JSON.parse(decodeURIComponent(
+      window.atob(payload)
+        .split("")
+        .map((character) => `%${character.charCodeAt(0).toString(16).padStart(2, "0")}`)
+        .join("")
+    ));
+  } catch (error) {
+    return {};
+  }
+}
+
+function handleGoogleCredential(response) {
+  const profile = decodeGoogleCredential(response.credential);
+  authState = {
+    credential: response.credential,
+    email: profile.email || "your NYU account",
+    status: "signed-in",
+  };
+
+  if (!els.studentNameInput.value.trim() && (profile.given_name || profile.name)) {
+    els.studentNameInput.value = profile.given_name || profile.name;
+  }
+
+  renderLanding();
+}
+
+async function initializeGoogleSignIn() {
+  if (!apiBaseUrl || !window.google?.accounts?.id) {
+    authState.status = "error";
+    renderLanding();
+    return;
+  }
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/config`, {
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) {
+      throw new Error("Configuration request failed.");
+    }
+
+    const config = await response.json();
+    window.google.accounts.id.initialize({
+      client_id: config.googleClientId,
+      callback: handleGoogleCredential,
+      auto_select: false,
+      cancel_on_tap_outside: true,
+    });
+    window.google.accounts.id.renderButton(els.googleSignInButton, {
+      type: "standard",
+      theme: "outline",
+      size: "large",
+      text: "signin_with",
+      shape: "rectangular",
+      width: Math.min(360, els.googleSignInButton.clientWidth || 360),
+    });
+    authState.status = "ready";
+  } catch (error) {
+    console.error("Google sign-in initialization failed", error);
+    authState.status = "error";
+  }
+
+  renderLanding();
 }
 
 function methodLabel(method) {
@@ -796,99 +916,113 @@ function renderOutcomeDetails(outcome, metrics) {
   }
 }
 
-function getCurrentOutcome(metrics) {
-  return getAccountingTrouble() || getEmploymentOutcome(metrics);
-}
+function renderEndingProgress(outcome) {
+  const progress = state.endingProgress;
+  const unlockedKeys = new Set(progress?.unlockedKeys || [outcome.key]);
 
-function recordPlaythrough(outcome, metrics) {
-  if (state.approvedRunRecorded) {
-    return;
+  if (!authState.credential) {
+    els.endingProgressStatus.textContent =
+      "This is one of five possible endings. Sign in before your next playthrough to save your collection and compare results.";
+  } else if (state.completionStatus === "saving") {
+    els.endingProgressStatus.textContent = "Saving this ending…";
+  } else if (state.completionStatus === "error") {
+    els.endingProgressStatus.textContent =
+      "We could not save this ending. Your result is still shown above, but it was not added to your collection.";
+  } else if (progress?.statisticsAvailable) {
+    els.endingProgressStatus.textContent =
+      `${progress.currentEnding.percentage}% of players reached this ending. You have unlocked ${unlockedKeys.size} of ${progress.totalEndings}.`;
+  } else if (progress) {
+    els.endingProgressStatus.textContent =
+      `You have unlocked ${unlockedKeys.size} of ${progress.totalEndings} endings. Player percentages will appear after ${progress.minimumPlayers} players complete the simulation.`;
+  } else {
+    els.endingProgressStatus.textContent = "Preparing your ending collection…";
   }
 
-  playthroughs.push({
-    number: playthroughs.length + 1,
-    studentName,
-    outcomeKey: outcome.key,
-    outcomeTitle: outcome.title,
-    method: state.method,
-    usefulLife: state.usefulLife,
-    residualValue: state.residualValue,
-    shortTermIncome: metrics.shortTermIncome,
-    warnings: getPolicyWarnings().map((warning) => warning.title),
-  });
-
-  state.approvedRunRecorded = true;
-}
-
-function renderSessionRecap() {
-  const displayName = studentName || "Student";
-  els.sessionTitle.textContent = `${displayName}'s session recap`;
-  els.sessionText.textContent =
-    playthroughs.length === 1
-      ? "You completed 1 play-through. Here is the decision path and outcome."
-      : `You completed ${playthroughs.length} play-throughs. Compare how the accounting choices changed the story.`;
-
-  if (!playthroughs.length) {
-    els.sessionSummary.innerHTML = `<p class="statement-empty">Complete a play-through to build your session recap.</p>`;
-    return;
-  }
-
-  els.sessionSummary.innerHTML = playthroughs
-    .map((run) => {
-      const warningText = run.warnings.length
-        ? run.warnings.join(" ")
-        : "No aggressive estimate was flagged.";
-
+  els.endingGrid.innerHTML = endingKeys
+    .map((key, index) => {
+      const unlocked = unlockedKeys.has(key);
+      const isCurrent = key === outcome.key;
+      const label = unlocked ? endingLabels[key] : "Locked ending";
+      const status = isCurrent ? "Current ending" : unlocked ? "Unlocked" : "Try another policy";
       return `
-        <article class="session-run" data-outcome="${run.outcomeKey}">
-          <div>
-            <span>Play-through ${run.number}</span>
-            <h3>${run.outcomeTitle}</h3>
-          </div>
-          <dl>
-            <div>
-              <dt>Method</dt>
-              <dd>${methodLabel(run.method)}</dd>
-            </div>
-            <div>
-              <dt>Useful life</dt>
-              <dd>${run.usefulLife} years</dd>
-            </div>
-            <div>
-              <dt>Residual value</dt>
-              <dd>${money(run.residualValue)}</dd>
-            </div>
-            <div>
-              <dt>Years 1-2 net income</dt>
-              <dd>${money(run.shortTermIncome)}</dd>
-            </div>
-          </dl>
-          <p>${warningText}</p>
+        <article class="ending-card ${unlocked ? "is-unlocked" : "is-locked"} ${isCurrent ? "is-current" : ""}">
+          <span>Ending ${index + 1}</span>
+          <strong>${label}</strong>
+          <small>${status}</small>
         </article>
       `;
     })
     .join("");
 }
 
+async function submitCompletion(outcome) {
+  if (!authState.credential || state.completionStatus !== "idle") {
+    return;
+  }
+
+  state.completionStatus = "saving";
+  renderEndingProgress(outcome);
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${authState.credential}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        runId: state.runId,
+        policy: {
+          method: state.method,
+          usefulLife: state.usefulLife,
+          residualValue: state.residualValue,
+        },
+      }),
+    });
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || "The ending could not be saved.");
+    }
+
+    if (result.currentEnding.key !== outcome.key) {
+      throw new Error("The server and browser calculated different endings.");
+    }
+
+    state.endingProgress = result;
+    state.completionStatus = "saved";
+  } catch (error) {
+    console.error("Ending submission failed", error);
+    state.completionStatus = "error";
+  }
+
+  renderEndingProgress(outcome);
+}
+
+function getCurrentOutcome(metrics) {
+  return getAccountingTrouble() || getEmploymentOutcome(metrics);
+}
+
 function renderFinal(metrics) {
   if (!state.approved || !metrics) {
     els.finalPanel.classList.add("is-hidden");
-    els.sessionPanel.classList.add("is-hidden");
     els.finalPanel.dataset.outcome = "";
     els.outcomeDetails.innerHTML = "";
+    els.endingGrid.innerHTML = "";
     return;
   }
 
   const outcome = getCurrentOutcome(metrics);
-  recordPlaythrough(outcome, metrics);
-
-  els.finalPanel.classList.toggle("is-hidden", state.showingSessionRecap);
-  els.sessionPanel.classList.toggle("is-hidden", !state.showingSessionRecap);
+  els.finalPanel.classList.remove("is-hidden");
   els.finalPanel.dataset.outcome = outcome.key;
   els.finalTitle.textContent = outcome.title;
   els.finalText.textContent = outcome.text;
   renderOutcomeDetails(outcome, metrics);
-  renderSessionRecap();
+  renderEndingProgress(outcome);
+
+  if (state.completionStatus === "idle" && authState.credential) {
+    window.setTimeout(() => submitCompletion(outcome), 0);
+  }
 }
 
 function getCfoReviewMessage() {
@@ -932,8 +1066,8 @@ function createChatMessage(
   message.classList.toggle("is-message-spotlight", spotlight);
 
   message.innerHTML = `
-    <div class="cfo-avatar" aria-hidden="true" title="Jordan Lee, CFO">
-      <span>JL</span>
+    <div class="cfo-avatar" aria-hidden="true" title="CFO">
+      <span>CFO</span>
     </div>
     <div class="cfo-copy">
       <div class="chat-bubble">
@@ -1011,13 +1145,13 @@ function getChatMessages(prompt, reviewMode) {
 
   if (state.dashboardOpen && !state.tourSkipped) {
     messages.push({
-      title: "First, here is the background.",
+      title: "Background information.",
       text:
-        "Aster bought AI accelerator server racks for $100M. We expect $80M in annual revenue from the added compute capacity and $35M in other operating costs before depreciation. These are the numbers the dashboard will use.",
+        "We purchased equipment for $100M, expect $80M in annual revenue, and have $35M in operating expense before depreciation.",
       spotlight: state.chatStage === "background",
       actions:
         state.chatStage === "background"
-          ? [{ label: "Next: decision area", action: "show-decision-area" }]
+          ? [{ label: "Next: Explore Decisions", action: "show-decision-area" }]
           : [],
     });
   }
@@ -1027,19 +1161,23 @@ function getChatMessages(prompt, reviewMode) {
     (["decision", "active"].includes(state.chatStage) || state.activeStep > 0 || state.approved)
   ) {
     messages.push({
-      title: "Now look at the decision area.",
+      title: "Start with the depreciation method.",
       text:
-        "This is where we will choose the depreciation method, useful life, and residual value. Each choice changes the income picture the board will see.",
+        "Choose either straight-line or double-declining depreciation. Your choice changes the timing of depreciation expense and net income.",
       spotlight: state.chatStage === "decision",
-      actionLabel: state.chatStage === "decision" ? "Start decisions" : null,
-      action: "start-decisions",
     });
   }
 
   if (state.chatStage === "active" || state.activeStep > 0 || state.approved) {
-    const promptLimit = state.approved ? cfoPrompts.length - 1 : state.activeStep;
+    const promptLimit = state.approved || state.reviewRequested
+      ? cfoPrompts.length - 1
+      : state.activeStep === cfoPrompts.length - 1
+        ? state.activeStep - 1
+        : state.activeStep;
     const reviewPromptIndex = cfoPrompts.length - 1;
-    const promptStart = state.replayMode ? reviewPromptIndex : 0;
+    const promptStart = state.replayMode
+      ? reviewPromptIndex
+      : 1;
 
     for (let index = promptStart; index <= promptLimit; index += 1) {
       const chatPrompt = cfoPrompts[index];
@@ -1112,6 +1250,22 @@ function renderChatMessages(prompt, reviewMode) {
   });
 }
 
+function advanceTutorialAfterInput(control) {
+  const prompt = cfoPrompts[state.activeStep];
+
+  if (
+    state.chatStage !== "active" ||
+    state.tourSkipped ||
+    state.approved ||
+    !prompt ||
+    prompt.key !== control
+  ) {
+    return;
+  }
+
+  state.activeStep += 1;
+}
+
 function render() {
   const prompt = cfoPrompts[state.activeStep];
   const hasMethod = Boolean(state.method);
@@ -1139,12 +1293,10 @@ function render() {
   );
   els.controlsGrid.classList.toggle("is-spotlight", state.chatStage === "decision");
   els.decisionPanel.classList.toggle("is-ended", state.approved);
+  els.decisionPanel.classList.toggle("is-replay-review", state.replayMode && !state.approved);
   renderLanding();
 
-  els.scenarioTitle.textContent = scenario.title;
-  els.scenarioDescription.textContent = scenario.description;
-
-  els.decisionHeading.textContent = state.approved ? "End of story" : prompt.step;
+  els.decisionHeading.textContent = state.approved ? "End of story" : "Decision area";
   renderChatMessages(prompt, reviewMode);
   const tutorial = state.tutorialStep ? tutorialSteps[state.tutorialStep] : null;
   const showTutorial = state.started && tutorial && state.activeStep === 0 && !state.approved;
@@ -1183,20 +1335,24 @@ function render() {
 
   els.lifeInput.value = state.usefulLife;
   els.lifeOutput.textContent = `${state.usefulLife} years`;
-  els.incomeChartTitle.textContent = `Net income over ${getIncomeHorizon()} years`;
+  els.incomeChartTitle.textContent = `${getIncomeHorizon()}-year outlook`;
   els.residualInput.value = state.residualValue;
   els.residualOutput.textContent = money(state.residualValue);
 
-  els.nextButton.textContent =
-    state.activeStep === cfoPrompts.length - 1
-      ? "Approve policy"
-      : state.activeStep === cfoPrompts.length - 2
-        ? state.replayMode
-          ? "Review policy"
-          : "Review choices"
-        : "Next decision";
+  const isReviewStep = state.activeStep === cfoPrompts.length - 1;
+  const canOpenReplayReview = state.replayMode && state.activeStep === cfoPrompts.length - 2;
+  els.nextButton.parentElement.classList.toggle(
+    "is-hidden",
+    state.chatStage !== "active" || state.approved || (!isReviewStep && !canOpenReplayReview)
+  );
+  els.nextButton.textContent = state.reviewRequested
+    ? "Approve policy"
+    : "Review policy";
   els.nextButton.disabled =
-    state.chatStage !== "active" || state.approved || (prompt.key === "method" && !hasMethod);
+    (!isReviewStep && !canOpenReplayReview) ||
+    state.chatStage !== "active" ||
+    state.approved ||
+    !hasMethod;
 
   els.previewPanel.classList.toggle("is-hidden", !state.dashboardOpen);
   renderPreviewTabs();
@@ -1204,11 +1360,9 @@ function render() {
 
   if (hasMethod) {
     renderIncomeChart(schedule, metrics);
-    renderAssetTable(schedule);
     renderStatements(schedule);
   } else {
     els.incomeChart.innerHTML = "";
-    els.assetTableBody.innerHTML = "";
     renderStatements([]);
   }
 
@@ -1220,8 +1374,7 @@ function resetGame({ skipTutorial = false } = {}) {
     started: true,
     activeStep: skipTutorial ? cfoPrompts.length - 2 : 0,
     approved: false,
-    approvedRunRecorded: false,
-    showingSessionRecap: false,
+    reviewRequested: false,
     tutorialStep: null,
     dashboardOpen: skipTutorial,
     chatStage: skipTutorial ? "active" : "opening",
@@ -1231,6 +1384,9 @@ function resetGame({ skipTutorial = false } = {}) {
     method: null,
     usefulLife: 3,
     residualValue: 0,
+    runId: createRunId(),
+    completionStatus: "idle",
+    endingProgress: null,
   };
   previousChatMessageCount = 0;
   render();
@@ -1239,17 +1395,20 @@ function resetGame({ skipTutorial = false } = {}) {
 els.methodButtons.forEach((button) => {
   button.addEventListener("click", () => {
     state.method = button.dataset.method;
+    advanceTutorialAfterInput("method");
     render();
   });
 });
 
 els.lifeInput.addEventListener("input", (event) => {
   state.usefulLife = Number(event.target.value);
+  advanceTutorialAfterInput("life");
   render();
 });
 
 els.residualInput.addEventListener("input", (event) => {
   state.residualValue = Number(event.target.value);
+  advanceTutorialAfterInput("residual");
   render();
 });
 
@@ -1289,7 +1448,7 @@ els.chatThread.addEventListener("click", (event) => {
     state.chatStage = "background";
     state.tourSkipped = false;
   } else if (action === "show-decision-area") {
-    state.chatStage = "decision";
+    state.chatStage = "active";
   } else if (action === "start-decisions") {
     state.chatStage = "active";
   }
@@ -1300,10 +1459,19 @@ els.chatThread.addEventListener("click", (event) => {
 els.nextButton.addEventListener("click", () => {
   state.tutorialStep = null;
 
+  if (!state.method) {
+    return;
+  }
+
   if (state.activeStep === cfoPrompts.length - 1) {
-    state.approved = true;
-  } else {
+    if (state.reviewRequested) {
+      state.approved = true;
+    } else {
+      state.reviewRequested = true;
+    }
+  } else if (state.replayMode && state.activeStep === cfoPrompts.length - 2) {
     state.activeStep += 1;
+    state.reviewRequested = true;
   }
 
   render();
@@ -1312,22 +1480,6 @@ els.nextButton.addEventListener("click", () => {
 els.playAgainButton.addEventListener("click", () => {
   resetGame({ skipTutorial: true });
 });
-
-els.sessionRecapButton.addEventListener("click", () => {
-  state.showingSessionRecap = true;
-  render();
-});
-
-els.sessionPlayAgainButton.addEventListener("click", () => {
-  resetGame({ skipTutorial: true });
-});
-
-els.sessionBackButton.addEventListener("click", () => {
-  state.showingSessionRecap = false;
-  render();
-});
-els.longTermButton.disabled = true;
-els.longTermButton.title = "Long-term focus scenario is next on the roadmap.";
 
 els.dismissTipButton.addEventListener("click", () => {
   if (state.tutorialStep === "background") {
@@ -1346,5 +1498,7 @@ window.addEventListener("resize", () => {
     positionStartTip();
   }
 });
+
+window.addEventListener("load", initializeGoogleSignIn);
 
 render();
