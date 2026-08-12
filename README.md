@@ -80,7 +80,7 @@ For local frontend development, serve the repository instead of opening `index.h
 python3 -m http.server 4000
 ```
 
-The server requires Node 20 or newer. From `server/`, run:
+The server requires Node 22.22.2 or newer. From `server/`, run:
 
 ```bash
 pnpm install
