@@ -989,6 +989,7 @@ function createChatMessage(
 }
 
 function getChatMessages(prompt, reviewMode) {
+  const displayName = studentName || "there";
   const messages = [
     state.replayMode
       ? {
@@ -997,9 +998,9 @@ function getChatMessages(prompt, reviewMode) {
             "I reopened the dashboard with all three decisions available. Try a different policy and we can compare how the numbers move.",
         }
       : {
-          title: "Do you have a minute?",
+          title: `Hi, ${displayName}.`,
           text:
-            "We need to make a few calls on Aster Compute Systems' new AI accelerator server racks. I built a dashboard so we can work through the decisions together. Quick reminder: the board is focused on combined Years 1-2 net income. $60M or more makes a CEO bonus likely; less than $50M puts the CEO at risk. If our depreciation assumptions are too aggressive, we could face scrutiny, a restatement, audit problems, and real career consequences. When you're ready, open the dashboard.",
+            "We need to make depreciation decisions for our new AI accelerator server racks. Whatever your decision on our depreciation method, try and keep our net income for the next two years above $50M.",
           actions: state.dashboardOpen
             ? []
             : [
