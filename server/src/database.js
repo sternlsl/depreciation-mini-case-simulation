@@ -108,11 +108,22 @@ function createDatabase(databaseUrl) {
     };
   }
 
+  async function getPlayerProgress({ playerSub, rulesetVersion }) {
+    const result = await pool.query(
+      `SELECT DISTINCT outcome_key
+       FROM completions
+       WHERE ruleset_version = $1 AND player_sub = $2`,
+      [rulesetVersion, playerSub]
+    );
+
+    return { unlockedKeys: result.rows.map((row) => row.outcome_key) };
+  }
+
   async function healthCheck() {
     await pool.query("SELECT 1");
   }
 
-  return { healthCheck, initialize, recordCompletion, getOutcomeProgress };
+  return { healthCheck, initialize, recordCompletion, getOutcomeProgress, getPlayerProgress };
 }
 
 module.exports = { createDatabase };

@@ -16,6 +16,9 @@ function startTestServer() {
         unlockedKeys: [outcomeKey],
       };
     },
+    async getPlayerProgress() {
+      return { unlockedKeys: ["safe", "bonus"] };
+    },
   };
   const config = {
     allowedEmailDomains: ["nyu.edu"],
@@ -64,4 +67,18 @@ test("completion endpoint derives and returns the ending", async (context) => {
   assert.equal(body.currentEnding.percentage, 100);
   assert.equal(body.totalEndings, 5);
   assert.equal(recorded[0].result.outcomeKey, "bonus");
+});
+
+test("progress endpoint returns a signed-in player's previous ending unlocks", async (context) => {
+  const { server } = startTestServer();
+  context.after(() => server.close());
+  await new Promise((resolve) => server.once("listening", resolve));
+  const { port } = server.address();
+  const response = await fetch(`http://127.0.0.1:${port}/api/progress`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    unlockedKeys: ["safe", "bonus"],
+    totalEndings: 5,
+  });
 });

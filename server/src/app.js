@@ -45,6 +45,18 @@ function createApp({ config, database, authenticate: authenticateOverride }) {
     res.json({ googleClientId: config.googleClientId });
   });
 
+  app.get("/api/progress", authenticate, async (req, res, next) => {
+    try {
+      const progress = await database.getPlayerProgress({
+        playerSub: req.player.sub,
+        rulesetVersion: config.rulesetVersion,
+      });
+      res.json({ ...progress, totalEndings: OUTCOME_KEYS.length });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post(
     "/api/completions",
     rateLimit({ windowMs: 60_000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false }),

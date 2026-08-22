@@ -69,8 +69,8 @@
           </label>
           <section class="sign-in-panel" aria-labelledby="signInTitle">
             <div>
-              <h3 id="signInTitle">Save your ending progress</h3>
-              <p>Sign in with your NYU Google account to compare your ending and unlock the full set.</p>
+              <h3 id="signInTitle">Save progress across sessions</h3>
+              <p>Sign in with your NYU Google account to save endings. Without signing in, your progress will not be kept when you leave.</p>
             </div>
             <div id="googleSignInButton" class="google-sign-in-button"></div>
             <p class="sign-in-status" id="signInStatus" aria-live="polite">Connecting to sign-in…</p>
@@ -126,11 +126,17 @@
             <h2 id="finalTitle">Results</h2>
             <p id="finalText"></p>
             <div class="outcome-details" id="outcomeDetails"></div>
-            <section class="ending-progress" id="endingProgress" aria-live="polite">
-              <h3>Your ending collection</h3>
-              <p id="endingProgressStatus">Saving this ending…</p>
-              <div class="ending-grid" id="endingGrid"></div>
-            </section>
+          </section>
+
+          <section class="ending-progress is-hidden" id="endingProgress" aria-live="polite">
+            <div class="ending-progress-heading">
+              <div>
+                <h3>Endings explored</h3>
+              </div>
+              <span class="collection-count" id="endingCollectionCount"></span>
+            </div>
+            <p id="endingProgressStatus">Saving this ending…</p>
+            <div class="ending-grid" id="endingGrid"></div>
             <div class="outcome-actions">
               <button class="primary-button" id="playAgainButton" type="button">Play again</button>
             </div>
@@ -260,6 +266,7 @@
     </main>
 
     <script src="config.js"></script>
+    <script src="endings.js"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="app.js"></script>
   </body>

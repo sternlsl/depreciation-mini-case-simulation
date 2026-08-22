@@ -13,10 +13,11 @@ const performanceTargets = {
 
 const appConfig = window.DEPRECIATION_CONFIG || {};
 const apiBaseUrl = String(appConfig.apiBaseUrl || "").replace(/\/$/, "");
+const endingContent = window.DEPRECIATION_ENDINGS || {};
 const endingLabels = {
   fired: "You got fired",
   safe: "You kept your job",
-  bonus: "You earned the bonus",
+  bonus: "You were given a bonus",
   press: "Accounting controversy",
   audit: "Audit failure",
 };
@@ -167,6 +168,7 @@ const els = {
   endingProgress: document.querySelector("#endingProgress"),
   endingProgressStatus: document.querySelector("#endingProgressStatus"),
   endingGrid: document.querySelector("#endingGrid"),
+  endingCollectionCount: document.querySelector("#endingCollectionCount"),
   playAgainButton: document.querySelector("#playAgainButton"),
 };
 
@@ -599,7 +601,7 @@ function renderLanding() {
     els.signInStatus.textContent = `Signed in as ${authState.email}. Your endings will be saved.`;
     els.signInStatus.className = "sign-in-status is-success";
   } else if (authState.status === "ready") {
-    els.signInStatus.textContent = "Sign in to save your endings and see player statistics.";
+    els.signInStatus.textContent = "Sign in to save endings across sessions and see player statistics.";
     els.signInStatus.className = "sign-in-status";
   } else if (authState.status === "error") {
     els.signInStatus.textContent = "Sign-in is unavailable right now. You can still play, but this ending will not be saved.";
@@ -639,6 +641,35 @@ function handleGoogleCredential(response) {
   }
 
   renderLanding();
+  loadEndingProgress();
+}
+
+async function loadEndingProgress() {
+  if (!authState.credential) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/progress`, {
+      headers: { Authorization: `Bearer ${authState.credential}` },
+    });
+    const progress = await response.json();
+
+    if (!response.ok) {
+      throw new Error(progress.error || "Saved ending progress could not be loaded.");
+    }
+
+    state.endingProgress = {
+      ...state.endingProgress,
+      ...progress,
+    };
+
+    if (state.approved) {
+      render();
+    }
+  } catch (error) {
+    console.error("Ending progress lookup failed", error);
+  }
 }
 
 async function initializeGoogleSignIn() {
@@ -795,6 +826,21 @@ function getAggressiveAssumptionSummary(policy = state) {
   return assumptions.join("; ");
 }
 
+function getEnding(key, values) {
+  const content = endingContent[key];
+
+  if (!content) {
+    throw new Error(`Missing ending content for ${key}.`);
+  }
+
+  return Object.fromEntries(
+    Object.entries(content).map(([field, value]) => [
+      field,
+      typeof value === "function" ? value(values) : value,
+    ])
+  );
+}
+
 function getAccountingTrouble(policy = state) {
   const usefulLifeWarning = getUsefulLifeWarning(policy.usefulLife);
   const residualWarning = getResidualWarning(policy.usefulLife, policy.residualValue);
@@ -810,25 +856,13 @@ function getAccountingTrouble(policy = state) {
   if (hasUrgentWarning) {
     return {
       key: "audit",
-      title: "18 months later: Audit failure and termination",
-      text:
-        `Eighteen months later, the assumptions for Aster Compute Systems' AI accelerator racks were too aggressive to defend. The policy recorded ${money(accountingDetail.chosenDepreciation)} of depreciation in Years 1-2. Under a reasonable 5-year life and ${money(10)} residual value, depreciation would have been ${money(accountingDetail.reasonableDepreciation)}. That inflated Years 1-2 net income by about ${money(accountingDetail.inflatedIncome)}. The auditors forced a correction, and the board terminated the CEO after concluding that management had signed off on estimates this far outside the norm.`,
-      detailTitle: "Accounting analysis",
-      detailText:
-        `${assumptionSummary}. The issue was not just that near-term income improved; it improved because depreciation expense had been delayed using assumptions the company could not support. Because the CEO approved the policy, the audit failure became a leadership failure too.`,
+      ...getEnding("audit", { accountingDetail, assumptionSummary, money }),
     };
   }
 
   return {
     key: "press",
-    title: "12 months later: Bonus rescinded after accounting controversy",
-    text:
-      `A few quarters later, analysts noticed the depreciation estimate for Aster Compute Systems' AI accelerator racks. The policy recorded ${money(accountingDetail.chosenDepreciation)} of depreciation in Years 1-2 versus ${money(accountingDetail.reasonableDepreciation)} under a reasonable 5-year life and ${money(10)} residual value. That lifted Years 1-2 net income by about ${money(accountingDetail.inflatedIncome)}. The board concluded that the bonus had been earned on assumptions that were too aggressive, so it rescinded the payout.`,
-    detailTitle: "Accounting analysis",
-    detailText:
-      `${assumptionSummary}. Auditors and analysts viewed those assumptions as aggressive because they reduced depreciation early while increasing the risk of a later write-down if the racks could not be used or sold as estimated. Aster avoided a full audit failure, but the board no longer treated the reported earnings as a clean basis for incentive pay.`,
-    headline:
-      "The Wall Street Journal: Aster Compute’s AI Rack Depreciation Raises Questions About Earnings",
+    ...getEnding("press", { accountingDetail, assumptionSummary, money }),
   };
 }
 
@@ -836,35 +870,25 @@ function getEmploymentOutcome(metrics) {
   if (metrics.shortTermIncome < performanceTargets.dangerShortTermIncome) {
     return {
       key: "fired",
-      title: "6 months later: You got fired",
-      text:
-        `${money(metrics.shortTermIncome)} in Years 1-2 net income missed the board's minimum target. The board decided the performance gap was too large and replaced the CEO.`,
-      detailTitle: "Accounting analysis",
-      detailText:
-        "The accounting policy may have been supportable, but it did not produce the near-term earnings story the board wanted. Aster recognized too much depreciation expense early to satisfy the short-term mandate.",
+      ...getEnding("fired", { money, shortTermIncome: metrics.shortTermIncome }),
     };
   }
 
   if (metrics.shortTermIncome >= performanceTargets.bonusShortTermIncome) {
     return {
       key: "bonus",
-      title: "12 months later: You earned the bonus",
-      text:
-        `${money(metrics.shortTermIncome)} in Years 1-2 net income cleared the bonus threshold. The board was pleased with the near-term performance and approved the bonus.`,
-      detailTitle: "Accounting analysis",
-      detailText:
-        `The ${state.usefulLife}-year useful life was a little higher than the norm, but the ${money(state.residualValue)} residual value stayed within a supportable range. The policy improved near-term earnings without crossing into an audit failure.`,
+      ...getEnding("bonus", {
+        money,
+        shortTermIncome: metrics.shortTermIncome,
+        usefulLife: state.usefulLife,
+        residualValue: state.residualValue,
+      }),
     };
   }
 
   return {
     key: "safe",
-    title: "12 months later: You kept your job, but no bonus",
-    text:
-      `${money(metrics.shortTermIncome)} in Years 1-2 net income kept you above the danger line, but it did not reach the bonus threshold. The board kept you in the role but held back the payout. The good news: your assumptions were supportable, which was exactly what a conservative accounting policy was supposed to achieve.`,
-    detailTitle: "Accounting analysis",
-    detailText:
-      "You avoided leaning too hard on useful life or residual value to manufacture short-term earnings. That made the policy easier to explain to auditors, analysts, and the board.",
+    ...getEnding("safe", { money, shortTermIncome: metrics.shortTermIncome }),
   };
 }
 
@@ -919,6 +943,9 @@ function renderOutcomeDetails(outcome, metrics) {
 function renderEndingProgress(outcome) {
   const progress = state.endingProgress;
   const unlockedKeys = new Set(progress?.unlockedKeys || [outcome.key]);
+  const totalEndings = progress?.totalEndings || endingKeys.length;
+  els.endingProgress.classList.remove("is-hidden");
+  els.endingCollectionCount.textContent = `${unlockedKeys.size} / ${totalEndings} unlocked`;
 
   if (!authState.credential) {
     els.endingProgressStatus.textContent =
@@ -930,10 +957,10 @@ function renderEndingProgress(outcome) {
       "We could not save this ending. Your result is still shown above, but it was not added to your collection.";
   } else if (progress?.statisticsAvailable) {
     els.endingProgressStatus.textContent =
-      `${progress.currentEnding.percentage}% of players reached this ending. You have unlocked ${unlockedKeys.size} of ${progress.totalEndings}.`;
+      `${progress.currentEnding.percentage}% of players reached this ending. You have unlocked ${unlockedKeys.size} of ${totalEndings}.`;
   } else if (progress) {
     els.endingProgressStatus.textContent =
-      `You have unlocked ${unlockedKeys.size} of ${progress.totalEndings} endings. Player percentages will appear after ${progress.minimumPlayers} players complete the simulation.`;
+      `You have unlocked ${unlockedKeys.size} of ${totalEndings} endings. Player percentages will appear after ${progress.minimumPlayers} players complete the simulation.`;
   } else {
     els.endingProgressStatus.textContent = "Preparing your ending collection…";
   }
@@ -942,11 +969,16 @@ function renderEndingProgress(outcome) {
     .map((key, index) => {
       const unlocked = unlockedKeys.has(key);
       const isCurrent = key === outcome.key;
-      const label = unlocked ? endingLabels[key] : "Locked ending";
-      const status = isCurrent ? "Current ending" : unlocked ? "Unlocked" : "Try another policy";
+      const label = unlocked ? endingLabels[key] : "Unexplored ending";
+      const status = isCurrent
+        ? "Current ending"
+        : unlocked
+          ? "Unlocked"
+          : "A different policy may reveal this outcome";
       return `
         <article class="ending-card ${unlocked ? "is-unlocked" : "is-locked"} ${isCurrent ? "is-current" : ""}">
-          <span>Ending ${index + 1}</span>
+          ${unlocked ? `<span>Ending ${index + 1}</span>` : ""}
+          ${unlocked ? "" : '<i class="ending-lock" aria-hidden="true">?</i>'}
           <strong>${label}</strong>
           <small>${status}</small>
         </article>
@@ -1009,6 +1041,8 @@ function renderFinal(metrics) {
     els.finalPanel.dataset.outcome = "";
     els.outcomeDetails.innerHTML = "";
     els.endingGrid.innerHTML = "";
+    els.endingProgress.classList.add("is-hidden");
+    els.endingCollectionCount.textContent = "";
     return;
   }
 
@@ -1058,12 +1092,14 @@ function getCfoReviewMessage() {
 
 function createChatMessage(
   { title, text, actionLabel, action, actions, warnings = [], spotlight = false },
-  isNew = false
+  isNew = false,
+  isCurrentTutorialMessage = false
 ) {
   const message = document.createElement("div");
   message.className = "cfo-message";
   message.classList.toggle("is-new", isNew);
   message.classList.toggle("is-message-spotlight", spotlight);
+  message.classList.toggle("is-current-tutorial-message", isCurrentTutorialMessage);
 
   message.innerHTML = `
     <div class="cfo-avatar" aria-hidden="true" title="CFO">
@@ -1165,6 +1201,10 @@ function getChatMessages(prompt, reviewMode) {
       text:
         "Choose either straight-line or double-declining depreciation. Your choice changes the timing of depreciation expense and net income.",
       spotlight: state.chatStage === "decision",
+      actions:
+        state.chatStage === "decision"
+          ? [{ label: "Start making decisions", action: "start-decisions" }]
+          : [],
     });
   }
 
@@ -1191,6 +1231,10 @@ function getChatMessages(prompt, reviewMode) {
             : chatPrompt.title,
         text: isReviewPrompt ? getCfoReviewMessage() : chatPrompt.text,
         warnings: isReviewPrompt ? getPolicyWarnings() : [],
+        spotlight:
+          state.chatStage === "active" &&
+          !state.approved &&
+          index === promptLimit,
       });
     }
   }
@@ -1206,7 +1250,11 @@ function renderChatMessages(prompt, reviewMode) {
   els.chatThread.innerHTML = "";
   els.chatThread.style.paddingBottom = "";
   messages.forEach((message, index) => {
-    els.chatThread.append(createChatMessage(message, index >= previousCount));
+    const isCurrentTutorialMessage =
+      state.chatStage === "active" && !state.approved && index === messages.length - 1;
+    els.chatThread.append(
+      createChatMessage(message, index >= previousCount, isCurrentTutorialMessage)
+    );
   });
   previousChatMessageCount = messages.length;
 
@@ -1294,6 +1342,10 @@ function render() {
   els.controlsGrid.classList.toggle("is-spotlight", state.chatStage === "decision");
   els.decisionPanel.classList.toggle("is-ended", state.approved);
   els.decisionPanel.classList.toggle("is-replay-review", state.replayMode && !state.approved);
+  els.decisionPanel.classList.toggle(
+    "is-guided-tutorial",
+    state.chatStage === "active" && !state.tourSkipped && !state.approved
+  );
   renderLanding();
 
   els.decisionHeading.textContent = state.approved ? "End of story" : "Decision area";
@@ -1321,6 +1373,7 @@ function render() {
       (state.tourSkipped ? control.dataset.control === "method" : control.dataset.control === prompt.key);
 
     control.classList.toggle("is-active", active);
+    control.classList.toggle("is-tutorial-highlight", active && !state.tourSkipped);
     control.classList.toggle("is-inactive", !visible);
     control.querySelectorAll("input, button").forEach((input) => {
       input.disabled = !enabled;
@@ -1353,6 +1406,13 @@ function render() {
     state.chatStage !== "active" ||
     state.approved ||
     !hasMethod;
+  els.nextButton.classList.toggle(
+    "is-tutorial-highlight",
+    state.chatStage === "active" &&
+      !state.approved &&
+      !state.tourSkipped &&
+      (isReviewStep || canOpenReplayReview)
+  );
 
   els.previewPanel.classList.toggle("is-hidden", !state.dashboardOpen);
   renderPreviewTabs();
@@ -1448,7 +1508,7 @@ els.chatThread.addEventListener("click", (event) => {
     state.chatStage = "background";
     state.tourSkipped = false;
   } else if (action === "show-decision-area") {
-    state.chatStage = "active";
+    state.chatStage = "decision";
   } else if (action === "start-decisions") {
     state.chatStage = "active";
   }
