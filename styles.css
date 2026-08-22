@@ -2528,3 +2528,13 @@ output {
   margin-top: 2px;
   font-size: 0.92rem;
 }
+
+/* Outcome and collection cards should follow their content, not the viewport height. */
+.simulation-screen.is-complete .decision-panel {
+  min-height: 0;
+  align-content: start;
+}
+
+.simulation-screen.is-complete .final-panel {
+  min-height: 0;
+}

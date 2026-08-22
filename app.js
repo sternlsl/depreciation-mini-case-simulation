@@ -15,11 +15,11 @@ const appConfig = window.DEPRECIATION_CONFIG || {};
 const apiBaseUrl = String(appConfig.apiBaseUrl || "").replace(/\/$/, "");
 const endingContent = window.DEPRECIATION_ENDINGS || {};
 const endingLabels = {
-  fired: "You got fired",
-  safe: "You kept your job",
-  bonus: "You were given a bonus",
-  press: "Accounting controversy",
-  audit: "Audit failure",
+  fired: "Fired: Net Income too low",
+  safe: "Kept your job",
+  bonus: "Earned a bonus",
+  press: "Bonus rescinded after bad press",
+  audit: "Fired after audit failure",
 };
 const endingKeys = Object.keys(endingLabels);
 
@@ -1163,9 +1163,9 @@ function getChatMessages(prompt, reviewMode) {
   const messages = [
     state.replayMode
       ? {
-          title: "Dashboard reopened.",
+          title: "Let’s set the policy.",
           text:
-            "I reopened the dashboard with all three decisions available. Try a different policy and we can compare how the numbers move.",
+            "Please choose the depreciation method, useful life, and residual value you think best fit our equipment. When you are ready, send the policy for review.",
         }
       : {
           title: `Hi, ${displayName}.`,
